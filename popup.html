@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YouTube AV Extension</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --yt-red:     #ff0000;
+      --yt-red-dk:  #cc0000;
+      --bg:         #0f0f0f;
+      --surface:    #1a1a1a;
+      --surface2:   #242424;
+      --border:     #333;
+      --text:       #f1f1f1;
+      --text-muted: #aaa;
+      --green:      #4caf50;
+      --orange:     #ff9800;
+      --radius:     8px;
+      --transition: 0.18s ease;
+    }
+
+    body {
+      width: 400px;
+      min-height: 160px;
+      max-height: 600px;
+      overflow-y: auto;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.5 system-ui, -apple-system, sans-serif;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header .logo {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 14px;
+      font-weight: 700;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    header .badge {
+      font-size: 10px;
+      background: var(--yt-red);
+      color: #fff;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-clear {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: var(--radius);
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .btn-clear:hover { border-color: var(--yt-red); color: var(--yt-red); }
+
+    /* ── Empty / status banner ────────────────────────────────────────── */
+    #status-banner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+      text-align: center;
+      gap: 8px;
+      color: var(--text-muted);
+    }
+    #status-banner .status-icon { font-size: 36px; }
+    #status-banner p { font-size: 13px; }
+    #status-banner .hint { font-size: 11px; opacity: 0.6; }
+
+    /* ── Section ──────────────────────────────────────────────────────── */
+    .section { padding: 10px 14px; }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-label span.count {
+      background: var(--surface2);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* ── Stream card ──────────────────────────────────────────────────── */
+    .stream-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      transition: border-color var(--transition);
+    }
+    .stream-card:hover { border-color: #555; }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .quality-badge {
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--yt-red);
+      color: #fff;
+      border-radius: 4px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .codec-info {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .expiry {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .expiry.ok     { background: #1b3a1b; color: var(--green);  }
+    .expiry.warn   { background: #3a2a0a; color: var(--orange); }
+    .expiry.expired { background: #3a0a0a; color: #f44; }
+
+    .card-bottom {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .format-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    select.format-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 4px 6px;
+      font-size: 11px;
+      cursor: pointer;
+      flex: 1;
+      min-width: 0;
+    }
+    select.format-select:focus { outline: none; border-color: var(--yt-red); }
+
+    .btn-download {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--yt-red);
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--transition);
+      flex-shrink: 0;
+    }
+    .btn-download:hover   { background: var(--yt-red-dk); }
+    .btn-download:active  { transform: scale(0.97); }
+    .btn-download svg     { flex-shrink: 0; }
+
+    /* ── Toast ────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: #222;
+      border: 1px solid #444;
+      color: var(--text);
+      padding: 7px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: transform 0.22s ease, opacity 0.22s ease;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 999;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ── Mux warning ─────────────────────────────────────────────────────── */
+    .mux-warn {
+      font-size: 10px;
+      color: var(--orange);
+      padding: 3px 0 0 2px;
+    }
+
+    /* ── Scrollbar ────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar              { width: 6px; }
+    ::-webkit-scrollbar-track        { background: transparent; }
+    ::-webkit-scrollbar-thumb        { background: #333; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover  { background: #555; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <header>
+    <!-- Inline SVG logo (no external CDN) -->
+    <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="5" fill="#ff0000"/>
+      <polygon points="10,8 10,16 17,12" fill="#ffffff"/>
+    </svg>
+    <h1>YouTube AV Extension</h1>
+    <span class="badge">MV3</span>
+    <button class="btn-clear" id="btn-clear" title="Clear all captured streams">Clear</button>
+  </header>
+
+  <!-- ── Main content ────────────────────────────────────────────────── -->
+  <main id="main-content">
+    <div id="status-banner">
+      <div class="status-icon">📡</div>
+      <p>Waiting for YouTube streams…</p>
+      <p class="hint">Play a video on YouTube, then re-open this popup.</p>
+    </div>
+  </main>
+
+  <!-- ── Toast notification ──────────────────────────────────────────── -->
+  <div id="toast"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
