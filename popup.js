@@ -4,9 +4,8 @@
  * • Reads video/audio streams from chrome.storage.local.
  * • Renders stream cards with quality, codec, and expiry information.
  * • Provides a format selector (.mp4, .webm, .mp3, .m4a, .ogg, .avi …)
- *   and a Download button that calls chrome.downloads.download() — the
- *   browser's native download manager streams directly to disk without
- *   loading the entire file into memory.
+ *   and a Copy URL action so users can inspect/export stream links
+ *   without direct in-extension downloading.
  * • Listens for storage changes so cards update automatically while the
  *   popup is open.
  */
@@ -16,12 +15,10 @@
 // ---------------------------------------------------------------------------
 // Format options offered per stream type
 //
-// IMPORTANT: chrome.downloads.download() transfers the raw stream bytes
-// directly to disk — it does NOT transcode or remux the content.
-// Selecting .mp4/.webm/.m4a/.ogg saves the file as-is (native container).
-// Selecting .avi / .mp3 only renames the file extension; the bytes remain
-// in the original container and the file will NOT play correctly until it
-// is properly muxed/converted with an external tool such as FFmpeg.
+// IMPORTANT: selecting a format here only changes the suggested extension
+// shown in the copied export label; it does NOT transcode or remux content.
+// Selecting .avi / .mp3 is a rename-only convention and external conversion
+// is still required for true container/codec changes.
 // ---------------------------------------------------------------------------
 const VIDEO_FORMATS = [
   { ext: 'mp4',  label: 'MP4  (.mp4)',              muxNeeded: false },
@@ -86,43 +83,23 @@ function clearAllTimers() {
 }
 
 // ---------------------------------------------------------------------------
-// Download
+// Clipboard export
 // ---------------------------------------------------------------------------
 
 /**
- * Trigger a download via the browser's native download manager.
- * chrome.downloads.download() passes the URL directly to Chrome so no
- * file data is ever loaded into extension memory.
+ * Copy a stream URL to clipboard.
  */
-function triggerDownload(stream, ext, streamType) {
-  const quality  = toFilenameSegment(stream.quality);
-  const codec    = toFilenameSegment(stream.codec);
-  const filename = `youtube_${streamType}_${quality}_${codec}.${ext}`;
-
-  chrome.downloads.download(
-    { url: stream.url, filename, saveAs: false },
-    (downloadId) => {
-      const err = chrome.runtime.lastError;
-      if (err) {
-        const msg = (err.message || '').toLowerCase();
-        let hint = err.message || 'Unknown error';
-        // Case-insensitive matching; messages may vary across Chrome versions/locales
-        if (msg.includes('not permitted') || msg.includes('permission'))
-          hint = 'Permission denied — check extension Downloads permission.';
-        else if (msg.includes('network') || msg.includes('net::'))
-          hint = 'Network error — the stream URL may have expired.';
-        else if (msg.includes('invalid url') || msg.includes('invalid_url'))
-          hint = 'Invalid URL — try reloading the YouTube video.';
-        else if (msg.includes('quota') || msg.includes('storage'))
-          hint = 'Disk quota exceeded — free up storage space.';
-        showToast(`❌ ${hint}`);
-        console.error('[YT-AV] Download error:', err.message, 'URL:', stream.url);
-      } else {
-        showToast(`⬇️ Download started — ${filename}`);
-        console.log('[YT-AV] Download ID:', downloadId, 'File:', filename);
-      }
-    },
-  );
+async function copyStreamUrl(stream, ext, streamType) {
+  const quality = toFilenameSegment(stream.quality);
+  const codec = toFilenameSegment(stream.codec);
+  const exportName = `stream_${streamType}_${quality}_${codec}.${ext}`;
+  try {
+    await navigator.clipboard.writeText(stream.url);
+    showToast(`📋 URL copied — ${exportName}`);
+  } catch (e) {
+    showToast('❌ Clipboard unavailable — copy manually from DevTools.');
+    console.error('[YT-AV] Clipboard copy error:', e?.message || e, 'URL:', stream.url);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +165,7 @@ function buildStreamCard(stream, streamType) {
 
   card.appendChild(topRow);
 
-  // ── Bottom row: format selector · download button ─────────────────────
+  // ── Bottom row: format selector · copy URL button ─────────────────────
   const bottomRow     = document.createElement('div');
   bottomRow.className = 'card-bottom';
 
@@ -225,17 +202,17 @@ function buildStreamCard(stream, streamType) {
 
   const dlBtn     = document.createElement('button');
   dlBtn.className = 'btn-download';
-  dlBtn.innerHTML = `${downloadIcon()} Download`;
-  dlBtn.addEventListener('click', () => {
+  dlBtn.innerHTML = `${downloadIcon()} Copy URL`;
+  dlBtn.addEventListener('click', async () => {
     const expiryCheck = formatExpiry(stream.expireTs);
     if (expiryCheck && expiryCheck.cls === 'expired') {
-      showToast('⚠️ URL has expired — reload the YouTube page.');
+      showToast('⚠️ URL has expired — reload the source page.');
       return;
     }
     if (selectedFmt()?.muxNeeded) {
       showToast('⚠️ Rename only — file needs FFmpeg conversion to play.');
     }
-    triggerDownload(stream, select.value, streamType);
+    await copyStreamUrl(stream, select.value, streamType);
   });
 
   bottomRow.appendChild(fmtLabel);
@@ -259,7 +236,7 @@ function renderStreams(videoStreams, audioStreams) {
       <div id="status-banner">
         <div class="status-icon">📡</div>
         <p>No streams detected yet.</p>
-        <p class="hint">Play a video on YouTube, then re-open this popup.</p>
+        <p class="hint">Play media in the active tab, then re-open this popup.</p>
       </div>`;
     return;
   }
