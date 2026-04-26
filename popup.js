@@ -15,21 +15,25 @@
 
 // ---------------------------------------------------------------------------
 // Format options offered per stream type
-// Note: the chosen extension is applied as the filename suffix only.
-//       Actual format conversion (e.g., AAC → MP3) requires an external
-//       muxer such as FFmpeg — left to the user as described in the issue.
+//
+// IMPORTANT: chrome.downloads.download() transfers the raw stream bytes
+// directly to disk — it does NOT transcode or remux the content.
+// Selecting .mp4/.webm/.m4a/.ogg saves the file as-is (native container).
+// Selecting .avi / .mp3 only renames the file extension; the bytes remain
+// in the original container and the file will NOT play correctly until it
+// is properly muxed/converted with an external tool such as FFmpeg.
 // ---------------------------------------------------------------------------
 const VIDEO_FORMATS = [
-  { ext: 'mp4',  label: 'MP4  (.mp4)'  },
-  { ext: 'webm', label: 'WebM (.webm)' },
-  { ext: 'avi',  label: 'AVI  (.avi) ⚠ needs muxing' },
+  { ext: 'mp4',  label: 'MP4  (.mp4)',              muxNeeded: false },
+  { ext: 'webm', label: 'WebM (.webm)',              muxNeeded: false },
+  { ext: 'avi',  label: 'AVI  (.avi) — rename only', muxNeeded: true  },
 ];
 
 const AUDIO_FORMATS = [
-  { ext: 'mp3',  label: 'MP3  (.mp3) ⚠ needs muxing' },
-  { ext: 'm4a',  label: 'M4A  (.m4a)'  },
-  { ext: 'ogg',  label: 'OGG  (.ogg)'  },
-  { ext: 'mp4',  label: 'MP4  (.mp4)'  },
+  { ext: 'm4a',  label: 'M4A  (.m4a)',              muxNeeded: false },
+  { ext: 'ogg',  label: 'OGG  (.ogg)',              muxNeeded: false },
+  { ext: 'mp3',  label: 'MP3  (.mp3) — rename only', muxNeeded: true  },
+  { ext: 'mp4',  label: 'MP4  (.mp4)',              muxNeeded: false },
 ];
 
 // Preferred default extension based on stream container
@@ -87,8 +91,16 @@ function triggerDownload(stream, ext, streamType) {
   chrome.downloads.download(
     { url: stream.url, filename, saveAs: false },
     (downloadId) => {
-      if (chrome.runtime.lastError) {
-        showToast(`❌ Download failed: ${chrome.runtime.lastError.message}`);
+      const err = chrome.runtime.lastError;
+      if (err) {
+        const msg = err.message || '';
+        let hint = msg;
+        if (msg.includes('Not permitted'))      hint = 'Permission denied — check extension Downloads permission.';
+        else if (msg.includes('NETWORK'))       hint = 'Network error — the stream URL may have expired.';
+        else if (msg.includes('invalid URL'))   hint = 'Invalid URL — try reloading the YouTube video.';
+        else if (msg.includes('quota'))         hint = 'Disk quota exceeded — free up storage space.';
+        showToast(`❌ ${hint}`);
+        console.error('[YT-AV] Download error:', msg, 'URL:', stream.url);
       } else {
         showToast(`⬇️ Download started — ${filename}`);
         console.log('[YT-AV] Download ID:', downloadId, 'File:', filename);
@@ -179,6 +191,17 @@ function buildStreamCard(stream, streamType) {
     select.appendChild(opt);
   });
 
+  // Warn visually when a rename-only format is selected
+  const muxWarning     = document.createElement('span');
+  muxWarning.className = 'mux-warn';
+  muxWarning.textContent = '⚠️ Rename only — use FFmpeg to convert.';
+  muxWarning.style.display = 'none';
+
+  const selectedFmt = () => formats.find((f) => f.ext === select.value);
+  select.addEventListener('change', () => {
+    muxWarning.style.display = selectedFmt()?.muxNeeded ? 'block' : 'none';
+  });
+
   const dlBtn     = document.createElement('button');
   dlBtn.className = 'btn-download';
   dlBtn.innerHTML = `${downloadIcon()} Download`;
@@ -188,6 +211,9 @@ function buildStreamCard(stream, streamType) {
       showToast('⚠️ URL has expired — reload the YouTube page.');
       return;
     }
+    if (selectedFmt()?.muxNeeded) {
+      showToast('⚠️ Rename only — file needs FFmpeg conversion to play.');
+    }
     triggerDownload(stream, select.value, streamType);
   });
 
@@ -195,6 +221,7 @@ function buildStreamCard(stream, streamType) {
   bottomRow.appendChild(select);
   bottomRow.appendChild(dlBtn);
   card.appendChild(bottomRow);
+  card.appendChild(muxWarning);
 
   return card;
 }

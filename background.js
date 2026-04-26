@@ -106,6 +106,7 @@ chrome.webRequest.onBeforeRequest.addListener(
         const streams = (result[storageKey] || []).slice();
         const idx     = streams.findIndex((s) => s.itag === itag);
         if (idx >= 0) {
+          streamInfo.capturedAt = streams[idx].capturedAt; // preserve original discovery time
           streams[idx] = streamInfo;   // refresh stale URL
         } else {
           streams.push(streamInfo);
@@ -116,8 +117,9 @@ chrome.webRequest.onBeforeRequest.addListener(
         );
         chrome.storage.local.set({ [storageKey]: streams });
       });
-    } catch (_e) {
-      // Ignore malformed URLs
+    } catch (e) {
+      // Log parse failures so they are visible in the service worker console
+      console.error('[YT-AV] Failed to parse videoplayback URL:', e.message, details.url);
     }
   },
   { urls: ['*://*.googlevideo.com/videoplayback*'] },
