@@ -74,6 +74,17 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
+// Track all active expiry-countdown timers so they can be cancelled when
+// the popup re-renders (e.g. storage change) rather than relying on fragile
+// DOM-detachment detection.
+const activeTimers = new Set();
+
+/** Cancel and clear all running expiry timers. */
+function clearAllTimers() {
+  activeTimers.forEach((id) => clearInterval(id));
+  activeTimers.clear();
+}
+
 // ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
@@ -93,14 +104,19 @@ function triggerDownload(stream, ext, streamType) {
     (downloadId) => {
       const err = chrome.runtime.lastError;
       if (err) {
-        const msg = err.message || '';
-        let hint = msg;
-        if (msg.includes('Not permitted'))      hint = 'Permission denied — check extension Downloads permission.';
-        else if (msg.includes('NETWORK'))       hint = 'Network error — the stream URL may have expired.';
-        else if (msg.includes('invalid URL'))   hint = 'Invalid URL — try reloading the YouTube video.';
-        else if (msg.includes('quota'))         hint = 'Disk quota exceeded — free up storage space.';
+        const msg = (err.message || '').toLowerCase();
+        let hint = err.message || 'Unknown error';
+        // Case-insensitive matching; messages may vary across Chrome versions/locales
+        if (msg.includes('not permitted') || msg.includes('permission'))
+          hint = 'Permission denied — check extension Downloads permission.';
+        else if (msg.includes('network') || msg.includes('net::'))
+          hint = 'Network error — the stream URL may have expired.';
+        else if (msg.includes('invalid url') || msg.includes('invalid_url'))
+          hint = 'Invalid URL — try reloading the YouTube video.';
+        else if (msg.includes('quota') || msg.includes('storage'))
+          hint = 'Disk quota exceeded — free up storage space.';
         showToast(`❌ ${hint}`);
-        console.error('[YT-AV] Download error:', msg, 'URL:', stream.url);
+        console.error('[YT-AV] Download error:', err.message, 'URL:', stream.url);
       } else {
         showToast(`⬇️ Download started — ${filename}`);
         console.log('[YT-AV] Download ID:', downloadId, 'File:', filename);
@@ -154,14 +170,19 @@ function buildStreamCard(stream, streamType) {
     if (expiryInfo.cls !== 'expired') {
       const timer = setInterval(() => {
         const updated = formatExpiry(stream.expireTs);
-        if (!updated || expSpan.closest('body') === null) {
+        if (!updated) {
           clearInterval(timer);
+          activeTimers.delete(timer);
           return;
         }
         expSpan.textContent = updated.label;
         expSpan.className   = `expiry ${updated.cls}`;
-        if (updated.cls === 'expired') clearInterval(timer);
+        if (updated.cls === 'expired') {
+          clearInterval(timer);
+          activeTimers.delete(timer);
+        }
       }, 1000);
+      activeTimers.add(timer);
     }
   }
 
@@ -229,6 +250,8 @@ function buildStreamCard(stream, streamType) {
 /** Render all streams into #main-content. */
 function renderStreams(videoStreams, audioStreams) {
   const main = document.getElementById('main-content');
+  // Cancel all running expiry timers before replacing the DOM
+  clearAllTimers();
   main.innerHTML = '';
 
   if (!videoStreams.length && !audioStreams.length) {

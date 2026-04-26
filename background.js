@@ -106,7 +106,10 @@ chrome.webRequest.onBeforeRequest.addListener(
         const streams = (result[storageKey] || []).slice();
         const idx     = streams.findIndex((s) => s.itag === itag);
         if (idx >= 0) {
-          streamInfo.capturedAt = streams[idx].capturedAt; // preserve original discovery time
+          // Preserve the original discovery timestamp so the user always sees
+          // when the stream was *first* captured, even as YouTube rotates the
+          // signed URL on subsequent requests for the same ITAG.
+          streamInfo.capturedAt = streams[idx].capturedAt;
           streams[idx] = streamInfo;   // refresh stale URL
         } else {
           streams.push(streamInfo);
