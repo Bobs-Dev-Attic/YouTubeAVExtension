@@ -255,6 +255,22 @@
     .btn-download:active  { transform: scale(0.97); }
     .btn-download svg     { flex-shrink: 0; }
 
+    .btn-copy {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: var(--transition);
+      flex-shrink: 0;
+    }
+    .btn-copy:hover  { border-color: #555; color: var(--text); }
+    .btn-copy:active { transform: scale(0.97); }
+
     /* ── Toast ────────────────────────────────────────────────────────── */
     #toast {
       position: fixed;
