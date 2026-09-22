@@ -4,8 +4,9 @@
  * • Reads video/audio streams from chrome.storage.local.
  * • Renders stream cards with quality, codec, and expiry information.
  * • Provides a format selector (.mp4, .webm, .mp3, .m4a, .ogg, .avi …)
- *   and a Copy URL action so users can inspect/export stream links
- *   without direct in-extension downloading.
+ *   with Download (saves the raw stream to disk via chrome.downloads)
+ *   and Copy URL actions. Downloads save the adaptive stream as-is;
+ *   combining video+audio or transcoding to MP3 still needs FFmpeg.
  * • Listens for storage changes so cards update automatically while the
  *   popup is open.
  */
@@ -86,13 +87,18 @@ function clearAllTimers() {
 // Clipboard export
 // ---------------------------------------------------------------------------
 
+/** Build the export filename for a stream and chosen extension. */
+function exportFilename(stream, ext, streamType) {
+  const quality = toFilenameSegment(stream.quality);
+  const codec = toFilenameSegment(stream.codec);
+  return `youtube_${streamType}_${quality}_${codec}.${ext}`;
+}
+
 /**
  * Copy a stream URL to clipboard.
  */
 async function copyStreamUrl(stream, ext, streamType) {
-  const quality = toFilenameSegment(stream.quality);
-  const codec = toFilenameSegment(stream.codec);
-  const exportName = `stream_${streamType}_${quality}_${codec}.${ext}`;
+  const exportName = exportFilename(stream, ext, streamType);
   try {
     await navigator.clipboard.writeText(stream.url);
     showToast(`📋 URL copied — ${exportName}`);
@@ -100,6 +106,31 @@ async function copyStreamUrl(stream, ext, streamType) {
     showToast('❌ Clipboard unavailable — copy manually from DevTools.');
     console.error('[YT-AV] Clipboard copy error:', e?.message || e, 'URL:', stream.url);
   }
+}
+
+/**
+ * Download a stream directly to disk via the browser's native download
+ * manager. chrome.downloads.download() passes the signed URL straight to
+ * the browser, so the media bytes are never loaded into extension memory.
+ *
+ * NOTE: this saves the raw adaptive stream as-is. A video itag yields a
+ * SILENT video file (audio is a separate stream); an .mp3/.avi selection is
+ * a rename only. Combining/transcoding still requires an external tool
+ * such as FFmpeg.
+ */
+function triggerDownload(stream, ext, streamType) {
+  const filename = exportFilename(stream, ext, streamType);
+  chrome.downloads.download(
+    { url: stream.url, filename, saveAs: false },
+    (downloadId) => {
+      if (chrome.runtime.lastError) {
+        showToast(`❌ Download failed: ${chrome.runtime.lastError.message}`);
+      } else {
+        showToast(`⬇️ Download started — ${filename}`);
+        console.log('[YT-AV] Download ID:', downloadId, 'File:', filename);
+      }
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -200,23 +231,39 @@ function buildStreamCard(stream, streamType) {
     muxWarning.style.display = selectedFmt()?.muxNeeded ? 'block' : 'none';
   });
 
+  // Guard shared by both actions: block on an expired signed URL.
+  const isExpired = () => {
+    const check = formatExpiry(stream.expireTs);
+    if (check && check.cls === 'expired') {
+      showToast('⚠️ URL has expired — reload the source page.');
+      return true;
+    }
+    return false;
+  };
+
   const dlBtn     = document.createElement('button');
   dlBtn.className = 'btn-download';
-  dlBtn.innerHTML = `${downloadIcon()} Copy URL`;
-  dlBtn.addEventListener('click', async () => {
-    const expiryCheck = formatExpiry(stream.expireTs);
-    if (expiryCheck && expiryCheck.cls === 'expired') {
-      showToast('⚠️ URL has expired — reload the source page.');
-      return;
-    }
+  dlBtn.innerHTML = `${downloadIcon()} Download`;
+  dlBtn.addEventListener('click', () => {
+    if (isExpired()) return;
     if (selectedFmt()?.muxNeeded) {
       showToast('⚠️ Rename only — file needs FFmpeg conversion to play.');
     }
+    triggerDownload(stream, select.value, streamType);
+  });
+
+  const copyBtn     = document.createElement('button');
+  copyBtn.className = 'btn-copy';
+  copyBtn.title     = 'Copy the stream URL to the clipboard';
+  copyBtn.textContent = 'Copy';
+  copyBtn.addEventListener('click', async () => {
+    if (isExpired()) return;
     await copyStreamUrl(stream, select.value, streamType);
   });
 
   bottomRow.appendChild(fmtLabel);
   bottomRow.appendChild(select);
+  bottomRow.appendChild(copyBtn);
   bottomRow.appendChild(dlBtn);
   card.appendChild(bottomRow);
   card.appendChild(muxWarning);

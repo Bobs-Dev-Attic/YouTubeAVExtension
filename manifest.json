@@ -2,11 +2,12 @@
   "manifest_version": 3,
   "name": "YouTube AV Extension",
   "version": "1.0.0",
-  "description": "Detects and inspects adaptive video/audio stream URLs in the active browsing session.",
+  "description": "Detects and inspects adaptive video/audio stream URLs, and downloads them in the active browsing session.",
   "permissions": [
     "webRequest",
     "storage",
-    "tabs"
+    "tabs",
+    "downloads"
   ],
   "host_permissions": [
     "*://*.googlevideo.com/*"
