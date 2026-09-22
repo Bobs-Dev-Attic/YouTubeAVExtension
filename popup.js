@@ -269,6 +269,79 @@ function renderStreams(videoStreams, audioStreams) {
 }
 
 // ---------------------------------------------------------------------------
+// URL field handlers
+// ---------------------------------------------------------------------------
+
+/** Normalise a user-typed URL by adding a protocol when omitted. */
+function normaliseUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+/** True if the URL points at a YouTube watch/short/embed page. */
+function isYouTubeWatchUrl(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com');
+  } catch {
+    return false;
+  }
+}
+
+/** "Go to video": open the URL in a tab so its streams get captured. */
+function handleGoToVideo() {
+  const url = normaliseUrl(document.getElementById('watch-url').value);
+  if (!url) {
+    showToast('⚠️ Enter a YouTube URL first.');
+    return;
+  }
+  if (!isYouTubeWatchUrl(url)) {
+    showToast('⚠️ That does not look like a YouTube URL.');
+    return;
+  }
+  // Reuse the current tab when it is already on YouTube; otherwise open a new
+  // one so the user's other page is left untouched.
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const active = tabs && tabs[0];
+    if (active && active.id != null && active.url && isYouTubeWatchUrl(active.url)) {
+      chrome.tabs.update(active.id, { url });
+    } else {
+      chrome.tabs.create({ url });
+    }
+    showToast('▶️ Opening video — reopen this popup to see streams.');
+    window.close();
+  });
+}
+
+/** "Parse stream URL": hand a raw videoplayback URL to the background parser. */
+function handleParseStreamUrl() {
+  const input = document.getElementById('stream-url');
+  const url = normaliseUrl(input.value);
+  if (!url) {
+    showToast('⚠️ Paste a stream URL first.');
+    return;
+  }
+  if (!/googlevideo\.com/i.test(url) || !url.includes('/videoplayback')) {
+    showToast('⚠️ Expected a googlevideo /videoplayback URL.');
+    return;
+  }
+  chrome.runtime.sendMessage({ type: 'parseStreamUrl', url }, (res) => {
+    if (chrome.runtime.lastError) {
+      showToast('❌ Could not reach the background worker.');
+      return;
+    }
+    if (res && res.ok) {
+      input.value = '';
+      showToast(`✅ Parsed ${res.streamType} stream.`);
+      // The storage.onChanged listener re-renders the cards automatically.
+    } else {
+      showToast(`⚠️ ${res && res.error ? res.error : 'Could not parse that URL.'}`);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -294,4 +367,12 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('🗑️ Streams cleared.');
     });
   });
+
+  // URL fields
+  const watchInput  = document.getElementById('watch-url');
+  const streamInput = document.getElementById('stream-url');
+  document.getElementById('btn-go').addEventListener('click', handleGoToVideo);
+  document.getElementById('btn-parse').addEventListener('click', handleParseStreamUrl);
+  watchInput.addEventListener('keydown',  (e) => { if (e.key === 'Enter') handleGoToVideo(); });
+  streamInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleParseStreamUrl(); });
 });
