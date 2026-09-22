@@ -83,6 +83,51 @@
     }
     .btn-clear:hover { border-color: var(--yt-red); color: var(--yt-red); }
 
+    /* ── Inspect toolbar (URL fields) ─────────────────────────────────── */
+    .inspect-bar {
+      padding: 10px 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .url-field { display: flex; flex-direction: column; gap: 3px; }
+    .url-field label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .url-row { display: flex; gap: 6px; }
+    .url-row input {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+    .url-row input:focus { outline: none; border-color: var(--yt-red); }
+    .url-row button {
+      background: var(--yt-red);
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--transition);
+      flex-shrink: 0;
+    }
+    .url-row button:hover  { background: var(--yt-red-dk); }
+    .url-row button:active { transform: scale(0.97); }
+
     /* ── Empty / status banner ────────────────────────────────────────── */
     #status-banner {
       display: flex;
@@ -260,6 +305,26 @@
     <span class="badge">MV3</span>
     <button class="btn-clear" id="btn-clear" title="Clear all captured streams">Clear</button>
   </header>
+
+  <!-- ── Inspect toolbar: URL fields ─────────────────────────────────── -->
+  <div class="inspect-bar">
+    <div class="url-field">
+      <label for="watch-url">Go to video</label>
+      <div class="url-row">
+        <input type="text" id="watch-url"
+          placeholder="Paste a YouTube watch URL…" autocomplete="off" spellcheck="false" />
+        <button id="btn-go" title="Open this video so its streams can be captured">Go</button>
+      </div>
+    </div>
+    <div class="url-field">
+      <label for="stream-url">Parse stream URL</label>
+      <div class="url-row">
+        <input type="text" id="stream-url"
+          placeholder="Paste a googlevideo /videoplayback URL…" autocomplete="off" spellcheck="false" />
+        <button id="btn-parse" title="Parse this stream URL into a card">Parse</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Main content ────────────────────────────────────────────────── -->
   <main id="main-content">

@@ -107,73 +107,102 @@ function queueStorageUpdate(storageKey, mutate) {
     });
 }
 
+/**
+ * Parse a single videoplayback URL and persist it as a stream entry.
+ *
+ * Shared by the passive webRequest listener and the popup's manual
+ * "Parse stream URL" field, so both paths categorise streams identically.
+ *
+ * @param {string} url - a googlevideo.com/videoplayback URL.
+ * @returns {{ ok: boolean, streamType?: 'video'|'audio', error?: string }}
+ */
+function captureStreamFromUrl(url) {
+  if (typeof url !== 'string' || !url.includes('/videoplayback')) {
+    return { ok: false, error: 'Not a videoplayback URL.' };
+  }
+
+  try {
+    const urlObj = new URL(url);
+    const params  = urlObj.searchParams;
+    const mimeParam = params.get('mime') || '';
+    const { base: mime, type: mimeType, container: mimeContainer } = parseMime(mimeParam);
+    const itag    = parseInt(params.get('itag') || '0', 10);
+    const expire  = params.get('expire') || '';
+    const quality = params.get('quality') || '';
+    const lang = params.get('lang') || '';
+    const audioTrack = params.get('audio_track') || params.get('xtags') || '';
+
+    let streamType = null;
+    if (mimeType === 'video')      streamType = 'video';
+    else if (mimeType === 'audio') streamType = 'audio';
+    if (!streamType) {
+      return { ok: false, error: 'URL has no video/audio mime parameter.' };
+    }
+
+    const itagInfo   = ITAG_INFO[itag] || null;
+    const streamKey = buildStreamKey({ itag, mime, audioTrack, lang });
+    const streamInfo = {
+      url,
+      streamKey,
+      itag,
+      mime,
+      quality:   itagInfo ? itagInfo.quality   : (quality || 'Unknown'),
+      codec:     itagInfo ? itagInfo.codec      : 'Unknown',
+      container: itagInfo ? itagInfo.container  : mimeContainer,
+      expireTs:  expire ? parseInt(expire, 10) * 1000 : null,
+      capturedAt: Date.now(),
+      lang,
+      audioTrack,
+    };
+
+    const storageKey   = streamType === 'video' ? 'videoStreams' : 'audioStreams';
+    const qualityOrder = streamType === 'video' ? VIDEO_QUALITY_ORDER : AUDIO_QUALITY_ORDER;
+
+    queueStorageUpdate(storageKey, (streams) => {
+      const idx = streams.findIndex((s) => s.streamKey === streamKey);
+      if (idx >= 0) {
+        // Preserve the original discovery timestamp so the user always sees
+        // when the stream was *first* captured, even as YouTube rotates the
+        // signed URL on subsequent requests for the same ITAG.
+        streamInfo.capturedAt = streams[idx].capturedAt;
+        streams[idx] = streamInfo;   // refresh stale URL
+      } else {
+        streams.push(streamInfo);
+      }
+      // Highest quality first
+      streams.sort(
+        (a, b) => qualityRank(b.quality, qualityOrder) - qualityRank(a.quality, qualityOrder),
+      );
+      return streams;
+    });
+
+    return { ok: true, streamType };
+  } catch (e) {
+    // Log parse failures so they are visible in the service worker console
+    console.error('[YT-AV] Failed to parse videoplayback URL:', e.message, url);
+    return { ok: false, error: 'Malformed URL — could not parse.' };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // webRequest listener — captures videoplayback URLs
 // ---------------------------------------------------------------------------
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    const { url } = details;
-    if (!url.includes('/videoplayback')) return;
-
-    try {
-      const urlObj = new URL(url);
-      const params  = urlObj.searchParams;
-      const mimeParam = params.get('mime') || '';
-      const { base: mime, type: mimeType, container: mimeContainer } = parseMime(mimeParam);
-      const itag    = parseInt(params.get('itag') || '0', 10);
-      const expire  = params.get('expire') || '';
-      const quality = params.get('quality') || '';
-      const lang = params.get('lang') || '';
-      const audioTrack = params.get('audio_track') || params.get('xtags') || '';
-
-      let streamType = null;
-      if (mimeType === 'video')      streamType = 'video';
-      else if (mimeType === 'audio') streamType = 'audio';
-      if (!streamType) return;
-
-      const itagInfo   = ITAG_INFO[itag] || null;
-      const streamKey = buildStreamKey({ itag, mime, audioTrack, lang });
-      const streamInfo = {
-        url,
-        streamKey,
-        itag,
-        mime,
-        quality:   itagInfo ? itagInfo.quality   : (quality || 'Unknown'),
-        codec:     itagInfo ? itagInfo.codec      : 'Unknown',
-        container: itagInfo ? itagInfo.container  : mimeContainer,
-        expireTs:  expire ? parseInt(expire, 10) * 1000 : null,
-        capturedAt: Date.now(),
-        lang,
-        audioTrack,
-      };
-
-      const storageKey   = streamType === 'video' ? 'videoStreams' : 'audioStreams';
-      const qualityOrder = streamType === 'video' ? VIDEO_QUALITY_ORDER : AUDIO_QUALITY_ORDER;
-
-      queueStorageUpdate(storageKey, (streams) => {
-        const idx = streams.findIndex((s) => s.streamKey === streamKey);
-        if (idx >= 0) {
-          // Preserve the original discovery timestamp so the user always sees
-          // when the stream was *first* captured, even as YouTube rotates the
-          // signed URL on subsequent requests for the same ITAG.
-          streamInfo.capturedAt = streams[idx].capturedAt;
-          streams[idx] = streamInfo;   // refresh stale URL
-        } else {
-          streams.push(streamInfo);
-        }
-        // Highest quality first
-        streams.sort(
-          (a, b) => qualityRank(b.quality, qualityOrder) - qualityRank(a.quality, qualityOrder),
-        );
-        return streams;
-      });
-    } catch (e) {
-      // Log parse failures so they are visible in the service worker console
-      console.error('[YT-AV] Failed to parse videoplayback URL:', e.message, details.url);
-    }
+    captureStreamFromUrl(details.url);
   },
   { urls: ['*://*.googlevideo.com/videoplayback*'] },
 );
+
+// ---------------------------------------------------------------------------
+// Message handler — lets the popup submit a stream URL for manual inspection.
+// ---------------------------------------------------------------------------
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message && message.type === 'parseStreamUrl') {
+    sendResponse(captureStreamFromUrl(message.url));
+  }
+  // Synchronous response; no need to return true.
+});
 
 // ---------------------------------------------------------------------------
 // Clear stored streams whenever the active tab navigates to a new page context.
